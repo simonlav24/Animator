@@ -1,5 +1,6 @@
 from vector import *
 from math import radians
+import PsdLoader
 import pygame
 
 pygame.init()
@@ -30,10 +31,20 @@ class Shape:
             self.pos = pos
         else:
             self.pos += pos
-        for child in self.children:
-            child.move(pos, abs)
+        # for child in self.children:
+        #     child.move(pos, abs)
     def rotate(self, angle, abs=False):
         pass
+    def getParentPos(self):
+        if self.parent == None:
+            return Vector()
+        return self.parent.pos
+    def addChild(self, child):
+        posOfChild = child.pos - self.pos
+        self.children.append(child)
+        child.parent = self
+        child.move(posOfChild, abs=True)
+        
     def addKeyFrame(self, frame, key, value):
         k = KeyValue(frame, value)
         if key in self.keyFrames:
@@ -112,7 +123,8 @@ class Circle(Shape):
             if key == "radius":
                 self.radius = self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1])
     def draw(self):
-        pygame.draw.circle(artBoard, (255, 255, 255), self.pos, self.radius)
+        pos = self.getParentPos() + self.pos
+        pygame.draw.circle(artBoard, (255, 255, 255), pos, self.radius)
         super().draw()
 
 class RotatableShape(Shape):
@@ -127,8 +139,8 @@ class RotatableShape(Shape):
             self.angle = angle
         else:
             self.angle += angle
-        for child in self.children:
-            child.rotate(angle, abs)
+        # for child in self.children:
+        #     child.rotate(angle, abs)
     def performKeyframes(self, currentKeys):
         super().performKeyframes(currentKeys)
         for key in currentKeys.keys():
@@ -143,12 +155,13 @@ class Surf(RotatableShape):
         self.surf = surf
     def draw(self):
         # self.rotation = 30
+        pos = self.getParentPos() + self.pos
         surf = pygame.transform.rotate(self.surf, self.angle)
-        anchorTag = self.pos + self.anchor
-        pos = self.pos - anchorTag
+        anchorTag = pos + self.anchor
+        pos = pos - anchorTag
         pos.rotate(-radians(self.angle))
         pos = pos + anchorTag
-        artBoard.blit(surf, pos - self.anchor - Vector(surf.get_width() // 2, surf.get_height() // 2))
+        artBoard.blit(surf, pos - Vector(surf.get_width() // 2, surf.get_height() // 2))
         super().draw()
 
 class TimeLine:
@@ -210,38 +223,60 @@ objects = []
 # init
 timeLine = TimeLine()
 
-# c = Circle((100, 100), 50)
-# objects.append(c)
+def test1():
 
-# c.addKeyFrame(25, "pos", Vector(100,100))
-# c.addKeyFrame(50, "pos", Vector(200,100))
-# c.addKeyFrame(75, "pos", Vector(500,500))
-# c.addKeyFrame(100, "pos", Vector(500,500))
-# c.addKeyFrame(150, "pos", Vector(200,200))
+    c = Circle((100, 100), 50)
+    objects.append(c)
 
-# c.addKeyFrame(25, "radius", 10)
-# c.addKeyFrame(50, "radius", 20)
-# c.addKeyFrame(75, "radius", 10)
-# c.addKeyFrame(100, "radius", 20)
-# c.addKeyFrame(150, "radius", 10)
+    c.addKeyFrame(25, "pos", Vector(100,100))
+    c.addKeyFrame(50, "pos", Vector(200,100))
+    c.addKeyFrame(75, "pos", Vector(500,500))
+    c.addKeyFrame(100, "pos", Vector(500,500))
+    c.addKeyFrame(150, "pos", Vector(200,200))
 
-s = Surf((300,300), pygame.image.load("D:/python/assets/anchor.png").convert_alpha())
-s.anchor = Vector(-45, 0)
-objects.append(s)
-s.addKeyFrame(25, "pos", Vector(100,100))
-s.addKeyFrame(50, "pos", Vector(200,100))
-s.addKeyFrame(75, "pos", Vector(500,500))
-s.addKeyFrame(100, "pos", Vector(500,500))
-s.addKeyFrame(150, "pos", Vector(200,200))
+    c.addKeyFrame(25, "radius", 10)
+    c.addKeyFrame(50, "radius", 20)
+    c.addKeyFrame(75, "radius", 10)
+    c.addKeyFrame(100, "radius", 20)
+    c.addKeyFrame(150, "radius", 10)
 
-s.addKeyFrame(0, "angle", 0)
-s.addKeyFrame(25 * 6, "angle", 360)
+    s = Surf((300,300), pygame.image.load("D:/python/assets/anchor.png").convert_alpha())
+    s.anchor = Vector(-45, 0)
+    objects.append(s)
+    s.addKeyFrame(25, "pos", Vector(100,100))
+    s.addKeyFrame(50, "pos", Vector(200,100))
+    s.addKeyFrame(75, "pos", Vector(500,500))
+    s.addKeyFrame(100, "pos", Vector(500,500))
+    s.addKeyFrame(150, "pos", Vector(200,200))
 
-s2 = Surf((200,300), pygame.image.load("D:/python/assets/blood3.png").convert_alpha())
-s.children.append(s2)
+    s.addKeyFrame(0, "angle", 0)
+    s.addKeyFrame(25 * 6, "angle", 360)
 
-s2.addKeyFrame(50, "pos", Vector(200,100))
-s2.addKeyFrame(75, "pos", Vector(500,500))
+    s2 = Surf((200,300), pygame.image.load("D:/python/assets/blood3.png").convert_alpha())
+    s.children.append(s2)
+
+def test2():
+    layers = PsdLoader.loadToLayers("D:\\python\\assets\\hand.psd")
+    arm = Surf(layers[0][1], layers[0][0])
+    objects.append(arm)
+    hand = Surf(layers[1][1], layers[1][0])
+    hand.anchor = Vector(0, 80)
+    arm.addChild(hand)
+    
+    arm.addKeyFrame(0, "pos", Vector(200,200))
+    arm.addKeyFrame(25, "pos", Vector(300,200))
+    arm.addKeyFrame(50, "pos", Vector(300,300))
+    arm.addKeyFrame(75, "pos", Vector(200,300))
+    arm.addKeyFrame(100, "pos", Vector(200,200))
+
+    handPos = vectorCopy(hand.pos)
+
+    hand.addKeyFrame(0, "angle", 0)
+    hand.addKeyFrame(25, "angle", 30)
+    hand.addKeyFrame(50, "angle", -30)
+    hand.addKeyFrame(75, "angle", 0)
+
+test2()
 
 r = Renderer()
 r.renderPNGSequance('D:\\python\\assets\\testAnim', 'tester')
