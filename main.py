@@ -19,10 +19,21 @@ class KeyValue:
 
 class Shape:
     def __init__(self, pos):
-        self.pos = pos
-        self.initialize()
-    def initialize(self):
+        self.initialize(pos)
+    def initialize(self, pos):
+        self.pos = vectorCopy(pos)
         self.keyFrames = {}
+        self.children = []
+        self.parent = None
+    def move(self, pos, abs=False):
+        if abs:
+            self.pos = pos
+        else:
+            self.pos += pos
+        for child in self.children:
+            child.move(pos, abs)
+    def rotate(self, angle, abs=False):
+        pass
     def addKeyFrame(self, frame, key, value):
         k = KeyValue(frame, value)
         if key in self.keyFrames:
@@ -45,8 +56,6 @@ class Shape:
         return currentKeys
 
     def binary_search(self, list, target):
-        if target == 51:
-            x = 0
         low = 0
         high = len(list) - 1
         while low < high:
@@ -69,7 +78,9 @@ class Shape:
         return (lowKey, highKey)
 
     def performKeyframes(self, currentKeys):
-        pass
+        for key in currentKeys.keys():
+            if key == "pos":
+                self.move(self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1]), abs=True)
 
     def keyframeInterpolate(self, key1, key2):
         if key1 == None and key2 == None:
@@ -78,59 +89,67 @@ class Shape:
             return key2.value
         if key2 == None:
             return key1.value
-        # if key1.frame == key2.frame:
         currentFrame = timeLine.getCurrentFrame()
-        # interpolate between key1 and key2
-        # if currentFrame == key1.frame:
-        #     return key1.value
-        # if currentFrame == key2.frame:
-        #     return key2.value
         return key1.value + (key2.value - key1.value) * (currentFrame - key1.frame) / (key2.frame - key1.frame)
-
 
     def step(self):
         currentKeys = self.evaluateKeyframes()
         self.performKeyframes(currentKeys)
+        for child in self.children:
+            child.step()
         
-
     def draw(self):
-        pass
+        for child in self.children:
+            child.draw()
 
 class Circle(Shape):
     def __init__(self, pos, radius):
-        self.initialize()
-        self.pos = pos
+        self.initialize(pos)
         self.radius = radius
     def performKeyframes(self, currentKeys):
+        super().performKeyframes(currentKeys)
         for key in currentKeys.keys():
             if key == "radius":
                 self.radius = self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1])
-            elif key == "pos":
-                self.pos = self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1])
     def draw(self):
         pygame.draw.circle(artBoard, (255, 255, 255), self.pos, self.radius)
+        super().draw()
 
-class Surf(Shape):
-    def __init__(self, pos, surf):
-        self.initialize()
-        self.pos = pos
-        self.surf = surf
-        self.anchor = Vector(0, 0)
-        self.rotation = 30
+class RotatableShape(Shape):
+    def __init__(self, pos, anchor=Vector(), angle=0):
+        self.initialize(pos, anchor, angle)
+    def initialize(self, pos, anchor=Vector(), angle=0):
+        super().initialize(pos)
+        self.anchor = anchor
+        self.angle = angle
+    def rotate(self, angle, abs=False):
+        if abs:
+            self.angle = angle
+        else:
+            self.angle += angle
+        for child in self.children:
+            child.rotate(angle, abs)
     def performKeyframes(self, currentKeys):
+        super().performKeyframes(currentKeys)
         for key in currentKeys.keys():
-            if key == "pos":
-                self.pos = self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1])
-            elif key == "rotation":
-                self.rotation = self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1])
+            if key == "angle":
+                self.rotate(self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1]), abs=True)
+    def draw(self):
+        super().draw()
+
+class Surf(RotatableShape):
+    def __init__(self, pos, surf):
+        self.initialize(pos)
+        self.surf = surf
     def draw(self):
         # self.rotation = 30
-        surf = pygame.transform.rotate(self.surf, self.rotation)
+        surf = pygame.transform.rotate(self.surf, self.angle)
         anchorTag = self.pos + self.anchor
         pos = self.pos - anchorTag
-        pos.rotate(-radians(self.rotation))
+        pos.rotate(-radians(self.angle))
         pos = pos + anchorTag
         artBoard.blit(surf, pos - self.anchor - Vector(surf.get_width() // 2, surf.get_height() // 2))
+        super().draw()
 
 class TimeLine:
     animationFps = 25
@@ -139,7 +158,6 @@ class TimeLine:
         self.frameCount = 25 * 6
         self.currentFrame = 0
     
-    # @staticmethod
     def frameToTime(frame):
         return (fps / TimeLine.animationFps) * frame
 
@@ -192,23 +210,23 @@ objects = []
 # init
 timeLine = TimeLine()
 
-c = Circle((100, 100), 50)
-objects.append(c)
+# c = Circle((100, 100), 50)
+# objects.append(c)
 
-c.addKeyFrame(25, "pos", Vector(100,100))
-c.addKeyFrame(50, "pos", Vector(200,100))
-c.addKeyFrame(75, "pos", Vector(500,500))
-c.addKeyFrame(100, "pos", Vector(500,500))
-c.addKeyFrame(150, "pos", Vector(200,200))
+# c.addKeyFrame(25, "pos", Vector(100,100))
+# c.addKeyFrame(50, "pos", Vector(200,100))
+# c.addKeyFrame(75, "pos", Vector(500,500))
+# c.addKeyFrame(100, "pos", Vector(500,500))
+# c.addKeyFrame(150, "pos", Vector(200,200))
 
-c.addKeyFrame(25, "radius", 10)
-c.addKeyFrame(50, "radius", 20)
-c.addKeyFrame(75, "radius", 10)
-c.addKeyFrame(100, "radius", 20)
-c.addKeyFrame(150, "radius", 10)
+# c.addKeyFrame(25, "radius", 10)
+# c.addKeyFrame(50, "radius", 20)
+# c.addKeyFrame(75, "radius", 10)
+# c.addKeyFrame(100, "radius", 20)
+# c.addKeyFrame(150, "radius", 10)
 
-s = Surf((400,400), pygame.image.load("D:/python/assets/anchor.png").convert_alpha())
-# s.anchor = Vector(-45, 0)
+s = Surf((300,300), pygame.image.load("D:/python/assets/anchor.png").convert_alpha())
+s.anchor = Vector(-45, 0)
 objects.append(s)
 s.addKeyFrame(25, "pos", Vector(100,100))
 s.addKeyFrame(50, "pos", Vector(200,100))
@@ -216,8 +234,14 @@ s.addKeyFrame(75, "pos", Vector(500,500))
 s.addKeyFrame(100, "pos", Vector(500,500))
 s.addKeyFrame(150, "pos", Vector(200,200))
 
-s.addKeyFrame(0, "rotation", 0)
-s.addKeyFrame(25 * 6, "rotation", 360)
+s.addKeyFrame(0, "angle", 0)
+s.addKeyFrame(25 * 6, "angle", 360)
+
+s2 = Surf((200,300), pygame.image.load("D:/python/assets/blood3.png").convert_alpha())
+s.children.append(s2)
+
+s2.addKeyFrame(50, "pos", Vector(200,100))
+s2.addKeyFrame(75, "pos", Vector(500,500))
 
 r = Renderer()
 r.renderPNGSequance('D:\\python\\assets\\testAnim', 'tester')
