@@ -102,7 +102,10 @@ class Shape:
             return key1.value
         currentFrame = timeLine.getCurrentFrame()
         return key1.value + (key2.value - key1.value) * (currentFrame - key1.frame) / (key2.frame - key1.frame)
-
+    def getAbsolutePos(self):
+        if self.parent == None:
+            return self.pos
+        return self.parent.getAbsolutePos() + self.pos
     def step(self):
         currentKeys = self.evaluateKeyframes()
         self.performKeyframes(currentKeys)
@@ -134,13 +137,27 @@ class RotatableShape(Shape):
         super().initialize(pos)
         self.anchor = anchor
         self.angle = angle
+    def getParentAngle(self):
+        if self.parent == None:
+            return 0
+        return self.parent.angle
+    def setAnchor(self, vec):
+        self.anchor = vec
+        self.pos = self.pos + self.anchor
     def rotate(self, angle, abs=False):
         if abs:
+            diff = angle - self.angle
             self.angle = angle
+            for child in self.children:
+                child.pos = rotateVector(child.pos, radians(-diff))
         else:
+            # not tested yet
             self.angle += angle
-        # for child in self.children:
-        #     child.rotate(angle, abs)
+            for child in self.children:
+                child.pos -= self.pos
+                child.pos.rotate(radians(self.angle))
+                child.pos += self.pos
+        
     def performKeyframes(self, currentKeys):
         super().performKeyframes(currentKeys)
         for key in currentKeys.keys():
@@ -154,15 +171,18 @@ class Surf(RotatableShape):
         self.initialize(pos)
         self.surf = surf
     def draw(self):
-        # self.rotation = 30
+        angle = self.getParentAngle() + self.angle
         pos = self.getParentPos() + self.pos
-        surf = pygame.transform.rotate(self.surf, self.angle)
+        surf = pygame.transform.rotate(self.surf, angle)
         anchorTag = pos + self.anchor
         pos = pos - anchorTag
-        pos.rotate(-radians(self.angle))
+        pos.rotate(-radians(angle))
         pos = pos + anchorTag
-        artBoard.blit(surf, pos - Vector(surf.get_width() // 2, surf.get_height() // 2))
+        artBoard.blit(surf, (pos - self.anchor) - Vector(surf.get_width() // 2, surf.get_height() // 2))
+        pygame.draw.circle(artBoard, (200,200,0), self.getAbsolutePos(), 2)
         super().draw()
+        
+        # print(self, self.anchor, self.pos)
 
 class TimeLine:
     animationFps = 25
@@ -241,7 +261,8 @@ def test1():
     c.addKeyFrame(150, "radius", 10)
 
     s = Surf((300,300), pygame.image.load("D:/python/assets/anchor.png").convert_alpha())
-    s.anchor = Vector(-45, 0)
+    s.setAnchor(Vector(-45, 0))
+    
     objects.append(s)
     s.addKeyFrame(25, "pos", Vector(100,100))
     s.addKeyFrame(50, "pos", Vector(200,100))
@@ -258,28 +279,83 @@ def test1():
 def test2():
     layers = PsdLoader.loadToLayers("D:\\python\\assets\\hand.psd")
     arm = Surf(layers[0][1], layers[0][0])
+    arm.setAnchor(Vector(13, 30))
     objects.append(arm)
     hand = Surf(layers[1][1], layers[1][0])
-    hand.anchor = Vector(0, 80)
-    arm.addChild(hand)
+    hand.setAnchor(Vector(-5, 80))
     
-    arm.addKeyFrame(0, "pos", Vector(200,200))
-    arm.addKeyFrame(25, "pos", Vector(300,200))
-    arm.addKeyFrame(50, "pos", Vector(300,300))
-    arm.addKeyFrame(75, "pos", Vector(200,300))
-    arm.addKeyFrame(100, "pos", Vector(200,200))
+    arm.addChild(hand)
+    # objects.append(hand)
+    
+    
+    # arm.addKeyFrame(0, "pos", Vector(200,200))
+    # arm.addKeyFrame(25, "pos", Vector(300,200))
+    # arm.addKeyFrame(50, "pos", Vector(300,300))
+    # arm.addKeyFrame(75, "pos", Vector(200,300))
+    # arm.addKeyFrame(100, "pos", Vector(200,200))
 
-    handPos = vectorCopy(hand.pos)
+    # arm.addKeyFrame(0, "angle", 0)
+    # arm.addKeyFrame(25, "angle", -40)
+    # arm.addKeyFrame(50, "angle", 0)
 
-    hand.addKeyFrame(0, "angle", 0)
-    hand.addKeyFrame(25, "angle", 30)
-    hand.addKeyFrame(50, "angle", -30)
-    hand.addKeyFrame(75, "angle", 0)
+    arm.addKeyFrame(0, "angle", 0)
+    arm.addKeyFrame(110, "angle", 360)
+
+    # handPos = vectorCopy(hand.pos)
+
+    hand.addKeyFrame(0, "angle", -20)
+    hand.addKeyFrame(10, "angle", 20)
+    hand.addKeyFrame(20, "angle", -20)
+    hand.addKeyFrame(30, "angle", 20)
+    hand.addKeyFrame(40, "angle", -20)
+    hand.addKeyFrame(50, "angle", 20)
+    hand.addKeyFrame(60, "angle", -20)
+    hand.addKeyFrame(70, "angle", 20)
+    hand.addKeyFrame(80, "angle", -20)
+    hand.addKeyFrame(90, "angle", 20)
+    hand.addKeyFrame(100, "angle", -20)
+    hand.addKeyFrame(110, "angle", 20)
+
+
+def test3():
+    layers = PsdLoader.loadToLayers("D:\\python\\assets\\hand.psd")
+    arm = Surf(layers[0][1], layers[0][0])
+    arm.setAnchor(Vector(13, 30))
+    objects.append(arm)
+    # hand = Surf(layers[1][1], layers[1][0])
+    
+    # hand.setAnchor(Vector(-5, 80))
+    # arm.addChild(hand)
+    # objects.append(hand)
+    
+    circle = Circle((100,150), 3)
+    # objects.append(circle)
+    arm.addChild(circle)
+    
+    # arm.addKeyFrame(0, "pos", Vector(200,200))
+    # arm.addKeyFrame(25, "pos", Vector(300,200))
+    # arm.addKeyFrame(50, "pos", Vector(300,300))
+    # arm.addKeyFrame(75, "pos", Vector(200,300))
+    # arm.addKeyFrame(100, "pos", Vector(200,200))
+
+    arm.addKeyFrame(0, "angle", 0)
+    arm.addKeyFrame(25, "angle", -40)
+    arm.addKeyFrame(50, "angle", 0)
+
+    # handPos = vectorCopy(hand.pos)
+
+    # hand.addKeyFrame(0, "angle", 0)
+    # hand.addKeyFrame(25, "angle", 30)
+    # hand.addKeyFrame(50, "angle", -30)
+    # hand.addKeyFrame(75, "angle", 0)
+
+    # arm.addKeyFrame(25, "angle", 0)
+    # arm.addKeyFrame(56, "angle", 10)
 
 test2()
 
-r = Renderer()
-r.renderPNGSequance('D:\\python\\assets\\testAnim', 'tester')
+# r = Renderer()
+# r.renderPNGSequance('D:\\python\\assets\\testAnim', 'tester')
 
 done = False
 while not done:
@@ -292,6 +368,10 @@ while not done:
 
     # step
     timeLine.step()
+
+    # if timeLine.timeOverall == 60:
+    #     objects[0].rotate(10)
+
     for obj in objects:
         obj.step()
 
