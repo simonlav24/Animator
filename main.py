@@ -9,10 +9,29 @@ artBoard = pygame.Surface((512, 512), pygame.SRCALPHA)
 clock = pygame.time.Clock()
 fps = 60
 
+keyFrameDiamond = [(2,0),(0,4),(-2,0),(0,-4)]
+
+class Gui:
+    _instance = None
+    def __init__(self):
+        Gui._instance = self
+    def handleEvents(self, event):
+        # mouse pressed
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            # if timeline selected
+            if TimeLine._instance.state == TIMELINE_PAUSE:
+                if TimeLine._instance.selected:
+                    TimeLine._instance.state = TIMELINE_DRAG
+        # mouse released
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            # if timeline selected
+            if TimeLine._instance.state == TIMELINE_DRAG:
+                TimeLine._instance.state = TIMELINE_PAUSE
 class KeyValue:
-    def __init__(self, frame, value):
+    def __init__(self, frame, value, slope=1):
         self.frame = frame
         self.value = value
+        self.slope = slope
     def __str__(self):
         return "KeyValue(" + str(self.frame) + ", " + str(self.value) + ")"
     def __repr__(self):
@@ -45,8 +64,8 @@ class Shape:
         child.parent = self
         child.move(posOfChild, abs=True)
         
-    def addKeyFrame(self, frame, key, value):
-        k = KeyValue(frame, value)
+    def addKeyFrame(self, frame, key, value, slope=1):
+        k = KeyValue(frame, value, slope)
         if key in self.keyFrames:
             self.keyFrames[key].append(k)
         else:
@@ -100,8 +119,15 @@ class Shape:
             return key2.value
         if key2 == None:
             return key1.value
-        currentFrame = timeLine.getCurrentFrame()
-        return key1.value + (key2.value - key1.value) * (currentFrame - key1.frame) / (key2.frame - key1.frame)
+        frame = timeLine.getCurrentFrame()
+
+        p0 = key1.slope
+        p1 = key2.slope
+
+        # interpolate according to the function y = (p1 -2 +p0)x^3 + (-p1+3-2p0)x^2 +p0x
+        t = (frame - key1.frame) / (key2.frame - key1.frame)
+        calculated_t = (p1 - 2 + p0) * t * t * t + (-p1 + 3 - 2 * p0) * t * t + p0 * t
+        return key1.value + (key2.value - key1.value) * calculated_t
     def getAbsolutePos(self):
         if self.parent == None:
             return self.pos
@@ -113,8 +139,17 @@ class Shape:
             child.step()
         
     def draw(self):
+        # might be wrong
         for child in self.children:
             child.draw()
+        # draw keyframes
+        for key in self.keyFrames.keys():
+            list = self.keyFrames[key]
+            for k in list:
+                timeLine = TimeLine.getInstance()
+                timeLine.drawKeyFrame(k)
+                # pygame.draw.circle(artBoard, (255, 0, 0), (k.frame, k.value), 5)
+        
 
 class Circle(Shape):
     def __init__(self, pos, radius):
@@ -173,7 +208,8 @@ class Surf(RotatableShape):
     def draw(self):
         angle = self.getParentAngle() + self.angle
         pos = self.getParentPos() + self.pos
-        surf = pygame.transform.rotate(self.surf, angle)
+        # surf = pygame.transform.rotate(self.surf, angle)
+        surf = pygame.transform.rotozoom(self.surf, angle, 1.0)
         anchorTag = pos + self.anchor
         pos = pos - anchorTag
         pos.rotate(-radians(angle))
@@ -184,37 +220,84 @@ class Surf(RotatableShape):
         
         # print(self, self.anchor, self.pos)
 
+TIMELINE_PLAY = 0
+TIMELINE_PAUSE = 1
+TIMELINE_DRAG = 2
+
 class TimeLine:
     animationFps = 25
-    def __init__(self):
+    _instance = None
+    def __init__(self, seconds):
+        TimeLine._instance = self
         self.timeOverall = 0
-        self.frameCount = 25 * 6
+        self.frameCount = 25 * seconds
         self.currentFrame = 0
-    
+        self.state = TIMELINE_PLAY
+        self.selected = False
+    def getInstance():
+        return TimeLine._instance
     def frameToTime(frame):
         return (fps / TimeLine.animationFps) * frame
 
     def getCurrentFrame(self):
         return int((TimeLine.animationFps / fps) * self.timeOverall)
-
+    def togglePlay(self):
+        if self.state == TIMELINE_PLAY:
+            self.state = TIMELINE_PAUSE
+        else:
+            self.state = TIMELINE_PLAY
     def restart(self):
         self.timeOverall = 0
         self.currentFrame = 0
 
     def step(self):
-        if self.timeOverall >= TimeLine.frameToTime(self.frameCount):
-            self.timeOverall = 0
-            self.currentFrame = 0
-
-        self.currentFrame = int((TimeLine.animationFps / fps) * self.timeOverall)
-        self.timeOverall += 1
+        mousePos = pygame.mouse.get_pos()
+        seekerPos = self.getSeekerPosInWin(self.currentFrame)
+        if distus(mousePos, seekerPos) < 10 * 10:
+            self.selected = True
+        else:
+            self.selected = False
         
-    def draw(self):
+        if self.state == TIMELINE_PLAY:
+            if self.timeOverall >= TimeLine.frameToTime(self.frameCount):
+                self.timeOverall = 0
+                self.currentFrame = 0
+
+            self.currentFrame = int((TimeLine.animationFps / fps) * self.timeOverall)
+            self.timeOverall += 1
+        elif self.state == TIMELINE_PAUSE:
+            pass
+        elif self.state == TIMELINE_DRAG:
+            pos1 = Vector(50, win.get_height() - 50)
+            pos2 = Vector(win.get_width() - 50, win.get_height() - 50)
+            mouseX = mousePos[0]
+            currentFrame = int((mouseX - 50) / (win.get_width() - 100) * self.frameCount)
+            if currentFrame < 0:
+                currentFrame = 0
+            elif currentFrame > self.frameCount:
+                currentFrame = self.frameCount
+            self.setCurrentFrame(currentFrame)
+    def setCurrentFrame(self, frame):
+        self.currentFrame = frame
+        self.timeOverall = int(TimeLine.frameToTime(frame))
+    def getSeekerPosInWin(self, frame):
         pos1 = Vector(50, win.get_height() - 50)
         pos2 = Vector(win.get_width() - 50, win.get_height() - 50)
+        return pos1 + (pos2 - pos1) * (frame / self.frameCount)
 
-        currentFramePos = pos1 + (pos2 - pos1) * (self.currentFrame / self.frameCount)
+    def drawKeyFrame(self, key):
+        keyFramePos = self.getSeekerPosInWin(key.frame)
+        # pygame.draw.circle(win, (255, 0, 0), keyFramePos, 2)
+        pygame.draw.polygon(win, (255,255,0), [keyFramePos + tup2vec(i) for i in keyFrameDiamond])
+
+    def draw(self):
+        currentFramePos = self.getSeekerPosInWin(self.currentFrame)
+        pos1 = Vector(50, win.get_height() - 50)
+        pos2 = Vector(win.get_width() - 50, win.get_height() - 50)
         pygame.draw.line(win, (255, 255, 255), pos1, pos2)
+
+        if self.selected or self.state == TIMELINE_DRAG:
+            pygame.draw.circle(win, (255, 0, 0), currentFramePos, 8)
         pygame.draw.circle(win, (255, 255, 255), currentFramePos, 5)
 
 # singleton renderer
@@ -238,10 +321,8 @@ class Renderer:
             pygame.image.save(artBoard, path + "/" + name + str(i).zfill(4) + ".png")
         timeLine.restart()
 
-objects = []
-
 # init
-timeLine = TimeLine()
+objects = []
 
 def test1():
 
@@ -298,8 +379,8 @@ def test2():
     # arm.addKeyFrame(25, "angle", -40)
     # arm.addKeyFrame(50, "angle", 0)
 
-    arm.addKeyFrame(0, "angle", 0)
-    arm.addKeyFrame(110, "angle", 360)
+    # arm.addKeyFrame(0, "angle", 0)
+    # arm.addKeyFrame(4*25, "angle", 360)
 
     # handPos = vectorCopy(hand.pos)
 
@@ -316,43 +397,31 @@ def test2():
     hand.addKeyFrame(100, "angle", -20)
     hand.addKeyFrame(110, "angle", 20)
 
-
 def test3():
-    layers = PsdLoader.loadToLayers("D:\\python\\assets\\hand.psd")
+    layers = PsdLoader.loadToLayers("D:\\python\\assets\\layertest2.psd")
     arm = Surf(layers[0][1], layers[0][0])
-    arm.setAnchor(Vector(13, 30))
+    arm.setAnchor(Vector(0, 0))
     objects.append(arm)
+    arm2 = Surf(layers[1][1], layers[1][0])
+    arm3 = Surf(layers[2][1], layers[2][0])
+    objects.append(arm2)
+    objects.append(arm3)
     # hand = Surf(layers[1][1], layers[1][0])
     
-    # hand.setAnchor(Vector(-5, 80))
-    # arm.addChild(hand)
-    # objects.append(hand)
-    
-    circle = Circle((100,150), 3)
-    # objects.append(circle)
-    arm.addChild(circle)
-    
-    # arm.addKeyFrame(0, "pos", Vector(200,200))
-    # arm.addKeyFrame(25, "pos", Vector(300,200))
-    # arm.addKeyFrame(50, "pos", Vector(300,300))
-    # arm.addKeyFrame(75, "pos", Vector(200,300))
-    # arm.addKeyFrame(100, "pos", Vector(200,200))
+    arm.addKeyFrame(0, "angle", 0, 0)
+    arm.addKeyFrame(25, "angle", 360,0)
 
-    arm.addKeyFrame(0, "angle", 0)
-    arm.addKeyFrame(25, "angle", -40)
-    arm.addKeyFrame(50, "angle", 0)
+    arm2.addKeyFrame(0, "angle", 0, 1)
+    arm2.addKeyFrame(25, "angle", 360,1)
 
-    # handPos = vectorCopy(hand.pos)
-
-    # hand.addKeyFrame(0, "angle", 0)
-    # hand.addKeyFrame(25, "angle", 30)
-    # hand.addKeyFrame(50, "angle", -30)
-    # hand.addKeyFrame(75, "angle", 0)
-
-    # arm.addKeyFrame(25, "angle", 0)
-    # arm.addKeyFrame(56, "angle", 10)
+    arm3.addKeyFrame(0, "angle", 0, 3)
+    arm3.addKeyFrame(25, "angle", 360, 3)
 
 test2()
+
+
+gui = Gui()
+timeLine = TimeLine(5)
 
 # r = Renderer()
 # r.renderPNGSequance('D:\\python\\assets\\testAnim', 'tester')
@@ -362,6 +431,13 @@ while not done:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             done = True
+        gui.handleEvents(event)
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pass
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                timeLine.togglePlay()
     keys = pygame.key.get_pressed()
     if keys[pygame.K_ESCAPE]:
         done = True
@@ -378,7 +454,6 @@ while not done:
     # draw
     win.fill((20, 20, 20))
     artBoard.fill((0,0,0,0))
-    
     timeLine.draw()
     for obj in objects:
         obj.draw()
