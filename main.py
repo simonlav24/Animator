@@ -4,17 +4,25 @@ import PsdLoader
 import pygame
 
 pygame.init()
-win = pygame.display.set_mode((1280, 720))
+
+win = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
 artBoard = pygame.Surface((512, 512), pygame.SRCALPHA)
+artBoardPos = Vector(win.get_width() // 2 - artBoard.get_width() // 2, win.get_height() // 2 - artBoard.get_height() // 2)
 clock = pygame.time.Clock()
 fps = 60
 
 keyFrameDiamond = [(2,0),(0,4),(-2,0),(0,-4)]
 
-class Gui:
+class Display:
     _instance = None
     def __init__(self):
-        Gui._instance = self
+        Display._instance = self
+        self.timeLine = TimeLine(5)
+        self.selectedHandle = None
+        self.selectedObj = None
+        # self.attributes = Attributes()
+    def getInstance():
+        return Display._instance
     def handleEvents(self, event):
         # mouse pressed
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -22,11 +30,51 @@ class Gui:
             if TimeLine._instance.state == TIMELINE_PAUSE:
                 if TimeLine._instance.selected:
                     TimeLine._instance.state = TIMELINE_DRAG
+            if self.selectedHandle:
+                Handle._state = "drag"
         # mouse released
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             # if timeline selected
             if TimeLine._instance.state == TIMELINE_DRAG:
                 TimeLine._instance.state = TIMELINE_PAUSE
+                self.updateHandles()
+            if Handle._state == "drag":
+                Handle._state = "idle"
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                self.timeLine.togglePlay()
+                self.updateHandles()
+    def updateHandles(self):
+        if self.selectedObj:
+            Handle.createHandles(self.selectedObj)
+    def step(self):
+        self.timeLine.step()
+        for h in Handle._reg:
+            h.step()
+        if self.selectedHandle:
+            if Handle._state == "idle":
+                if not distus(self.selectedHandle.pos, pygame.mouse.get_pos()) < Handle._radius * Handle._radius:
+                    self.selectedHandle.selected = False
+                    self.selectedHandle = None
+            elif Handle._state == "drag":
+                self.selectedHandle.update()
+    def draw(self):
+        self.timeLine.draw()
+        for h in Handle._reg:
+            h.draw()
+
+class Attributes:
+    _instance = None
+    def __init__(self):
+        Attributes._instance = self
+        self.surf = pygame.Surface((512, win.get_width() // 2))
+    def handleEvents(self, event):
+        pass
+    def step(self):
+        pass
+    def draw(self):
+        win.blit(self.surf, (win.get_width() - self.surf.get_width(), win.get_height() // 2))
+
 class KeyValue:
     def __init__(self, frame, value, slope=1):
         self.frame = frame
@@ -63,7 +111,8 @@ class Shape:
         self.children.append(child)
         child.parent = self
         child.move(posOfChild, abs=True)
-        
+    def getSize(self):
+        pass
     def addKeyFrame(self, frame, key, value, slope=1):
         k = KeyValue(frame, value, slope)
         if key in self.keyFrames:
@@ -73,7 +122,7 @@ class Shape:
         # sort the keyframes by frame
         self.keyFrames[key].sort(key=lambda x: x.frame)
     def evaluateKeyframes(self):
-        currentFrame = timeLine.getCurrentFrame()
+        currentFrame = Display.getInstance().timeLine.getCurrentFrame()
         currentKeys = {}
         for key in self.keyFrames.keys():
             list = self.keyFrames[key]
@@ -110,7 +159,10 @@ class Shape:
     def performKeyframes(self, currentKeys):
         for key in currentKeys.keys():
             if key == "pos":
-                self.move(self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1]), abs=True)
+                newPos = self.keyframeInterpolate(currentKeys[key][0], currentKeys[key][1])
+                if not newPos:
+                    continue
+                self.move(newPos, abs=True)
 
     def keyframeInterpolate(self, key1, key2):
         if key1 == None and key2 == None:
@@ -119,7 +171,7 @@ class Shape:
             return key2.value
         if key2 == None:
             return key1.value
-        frame = timeLine.getCurrentFrame()
+        frame = Display.getInstance().timeLine.getCurrentFrame()
 
         p0 = key1.slope
         p1 = key2.slope
@@ -133,8 +185,9 @@ class Shape:
             return self.pos
         return self.parent.getAbsolutePos() + self.pos
     def step(self):
-        currentKeys = self.evaluateKeyframes()
-        self.performKeyframes(currentKeys)
+        if Display._instance.timeLine.state != TIMELINE_PAUSE:
+            currentKeys = self.evaluateKeyframes()
+            self.performKeyframes(currentKeys)
         for child in self.children:
             child.step()
         
@@ -149,8 +202,6 @@ class Shape:
                 timeLine = TimeLine.getInstance()
                 timeLine.drawKeyFrame(k)
                 # pygame.draw.circle(artBoard, (255, 0, 0), (k.frame, k.value), 5)
-        
-
 class Circle(Shape):
     def __init__(self, pos, radius):
         self.initialize(pos)
@@ -176,6 +227,8 @@ class RotatableShape(Shape):
         if self.parent == None:
             return 0
         return self.parent.angle
+    def setPosRel(self, vec):
+        self.pos = self.pos + vec
     def setAnchor(self, vec):
         self.anchor = vec
         self.pos = self.pos + self.anchor
@@ -204,7 +257,12 @@ class RotatableShape(Shape):
 class Surf(RotatableShape):
     def __init__(self, pos, surf):
         self.initialize(pos)
+        self.orgSurf = surf
         self.surf = surf
+    def setSize(self, size):
+        self.surf = pygame.transform.scale(self.orgSurf, size)
+    def getSize(self):
+        return self.surf.get_size()
     def draw(self):
         angle = self.getParentAngle() + self.angle
         pos = self.getParentPos() + self.pos
@@ -217,8 +275,78 @@ class Surf(RotatableShape):
         artBoard.blit(surf, (pos - self.anchor) - Vector(surf.get_width() // 2, surf.get_height() // 2))
         pygame.draw.circle(artBoard, (200,200,0), self.getAbsolutePos(), 2)
         super().draw()
-        
-        # print(self, self.anchor, self.pos)
+
+class Handle:
+    _radius = 5
+    _reg = []
+    _state = "idle"
+    def __init__(self, obj, pos, mode):
+        self.pos = tup2vec(pos)
+        self.selected = False
+        self.obj = obj
+        self.mode = mode
+    def step(self):
+        mousePos = pygame.mouse.get_pos()
+        if not Display._instance.selectedHandle and distus(mousePos, self.pos) < self._radius * self._radius:
+            self.selected = True
+            Display._instance.selectedHandle = self
+    def draw(self):
+        color = (255,255,255) if not self.selected else (0,255,0)
+        # pygame.draw.circle(win, color, self.pos, self._radius, 1)
+        pygame.draw.rect(win, color, (self.pos[0] - self._radius, self.pos[1] - self._radius, self._radius * 2, self._radius * 2))
+
+    def updateHandles():
+        pos = tup2vec(obj.getAbsolutePos()) + artBoardPos
+        size = tup2vec(obj.getSize())
+        Handle._reg[0].pos = pos - size // 2
+        Handle._reg[1].pos = pos - Vector(0, size.y // 2)
+        Handle._reg[2].pos = pos + Vector(size.x // 2 , -size.y // 2)
+        Handle._reg[3].pos = pos - Vector(size.x // 2, 0)
+        Handle._reg[4].pos = pos + Vector(size.x // 2, 0)
+        Handle._reg[5].pos = pos + Vector(-size.x // 2, size.y // 2)
+        Handle._reg[6].pos = pos + Vector(0, size.y // 2)
+        Handle._reg[7].pos = pos + Vector(size.x // 2, size.y // 2)
+        Handle._reg[8].pos = pos
+    def createHandles(obj):
+        # create 9 handles for the obj
+        pos = tup2vec(obj.getAbsolutePos()) + artBoardPos
+        size = tup2vec(obj.getSize())
+
+        Handle._reg.clear()
+
+        Handle._reg.append(Handle(obj, pos - size // 2, "tl"))
+        Handle._reg.append(Handle(obj, pos - Vector(0, size.y // 2), "tm"))
+        Handle._reg.append(Handle(obj, pos + Vector(size.x // 2 , -size.y // 2), "tr"))
+        Handle._reg.append(Handle(obj, pos - Vector(size.x // 2, 0), "ml"))
+        Handle._reg.append(Handle(obj, pos + Vector(size.x // 2, 0), "mr"))
+        Handle._reg.append(Handle(obj, pos + Vector(-size.x // 2, size.y // 2), "bl"))
+        Handle._reg.append(Handle(obj, pos + Vector(0, size.y // 2), "bm"))
+        Handle._reg.append(Handle(obj, pos + Vector(size.x // 2, size.y // 2), "br"))
+        Handle._reg.append(Handle(obj, pos, "c"))
+
+    def update(self):
+        mousePos = tup2vec(pygame.mouse.get_pos())
+        objAbsPos = self.obj.getAbsolutePos() + artBoardPos
+        self.pos = mousePos
+        if self.mode == "c":
+            obj.setPosRel(mousePos - objAbsPos)
+            Handle.updateHandles()
+        elif self.mode in ["tl", "tr", "bl", "br"]:
+            newSize = (abs(objAbsPos.x - mousePos.x) * 2, abs(objAbsPos.y - mousePos.y) * 2)
+            self.obj.setSize(newSize)
+            Handle.updateHandles()
+        elif self.mode in ["tm", "bm"]:
+            newSize = (self.obj.getSize()[0], abs(objAbsPos.y - mousePos.y) * 2)
+            self.obj.setSize(newSize)
+            Handle.updateHandles()
+        elif self.mode in ["ml", "mr"]:
+            newSize = (abs(objAbsPos.x - mousePos.x) * 2, self.obj.getSize()[1])
+            self.obj.setSize(newSize)
+            Handle.updateHandles()
+
+            
+
+
 
 TIMELINE_PLAY = 0
 TIMELINE_PAUSE = 1
@@ -268,8 +396,6 @@ class TimeLine:
         elif self.state == TIMELINE_PAUSE:
             pass
         elif self.state == TIMELINE_DRAG:
-            pos1 = Vector(50, win.get_height() - 50)
-            pos2 = Vector(win.get_width() - 50, win.get_height() - 50)
             mouseX = mousePos[0]
             currentFrame = int((mouseX - 50) / (win.get_width() - 100) * self.frameCount)
             if currentFrame < 0:
@@ -308,10 +434,11 @@ class Renderer:
             cls._instance = super(Renderer, cls).__new__(cls, *args, **kwargs)
         return cls._instance
     def renderPNGSequance(self, path, name):
-        frameCount = timeLine.frameCount
-        timeLine.restart()
+        timeline = TimeLine._instance
+        frameCount = timeline.frameCount
+        timeline.restart()
         for i in range(frameCount):
-            timeLine.step()
+            timeline.step()
             for obj in objects:
                 obj.step()
             artBoard.fill((0,0,0,0))
@@ -319,7 +446,7 @@ class Renderer:
                 obj.draw()
             # save frame to path  with frame number with 4 digits
             pygame.image.save(artBoard, path + "/" + name + str(i).zfill(4) + ".png")
-        timeLine.restart()
+        timeline.restart()
 
 # init
 objects = []
@@ -417,33 +544,43 @@ def test3():
     arm3.addKeyFrame(0, "angle", 0, 3)
     arm3.addKeyFrame(25, "angle", 360, 3)
 
-test2()
+def testHandle():
+    img = pygame.image.load("D:\\python\\assets\\hadi.png")
+    hadi = Surf((100,100), img)
+    objects.append(hadi)
 
+    Display._instance.selectedObj = hadi
+    Handle.createHandles(Display._instance.selectedObj)
 
-gui = Gui()
-timeLine = TimeLine(5)
+display = Display()
 
-# r = Renderer()
-# r.renderPNGSequance('D:\\python\\assets\\testAnim', 'tester')
+testHandle()
+
+r = Renderer()
+r.renderPNGSequance('D:\\python\\assets\\testAnim', 'tester')
 
 done = False
 while not done:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             done = True
-        gui.handleEvents(event)
+        display.handleEvents(event)
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pass
-
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                timeLine.togglePlay()
+            if event.key == pygame.K_s:
+                # set keyFrame temporary pos
+                obj = display.selectedObj
+                obj.addKeyFrame(display.timeLine.currentFrame, "pos", vectorCopy(obj.pos))
+
+        
     keys = pygame.key.get_pressed()
     if keys[pygame.K_ESCAPE]:
         done = True
 
     # step
-    timeLine.step()
+    display.step()
+    # timeLine.step()
 
     # if timeLine.timeOverall == 60:
     #     objects[0].rotate(10)
@@ -453,14 +590,16 @@ while not done:
 
     # draw
     win.fill((20, 20, 20))
+    pygame.draw.rect(win, (0, 0, 0), (artBoardPos, artBoard.get_size()))
+    win.blit(artBoard, artBoardPos)
+    pygame.draw.rect(win, (255, 255, 255), (artBoardPos, artBoard.get_size()), 1)
+    display.draw()
     artBoard.fill((0,0,0,0))
-    timeLine.draw()
+    # timeLine.draw()
     for obj in objects:
         obj.draw()
     
-    pygame.draw.rect(win, (0, 0, 0), (win.get_width() // 2 - artBoard.get_width() // 2, win.get_height() // 2 - artBoard.get_height() // 2, artBoard.get_width(), artBoard.get_height()))
-    win.blit(artBoard, (win.get_width() // 2 - artBoard.get_width() // 2, win.get_height() // 2 - artBoard.get_height() // 2))
-    pygame.draw.rect(win, (255, 255, 255), (win.get_width() // 2 - artBoard.get_width() // 2, win.get_height() // 2 - artBoard.get_height() // 2, artBoard.get_width(), artBoard.get_height()), 1)
+    
 
     pygame.display.update()
     clock.tick(fps)
